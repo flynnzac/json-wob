@@ -125,7 +125,6 @@ set /json
 
           while ( lt-eq end [ string-length string . ] . )
                 (
-                  print tokpos .
                   set /res [ registry . ] .
                   set /t1 [ json:/lex-string string end . ] res .
                   set /t2 [ json:/lex-number string end . ] res .
