@@ -35,11 +35,19 @@ set /json
                    Nothing 
                    {
                      set /x start .
+                     set /escape False .
                      while ( and
                                { lt-eq x [ string-length string . ] . }
-                               { not
-                                   [ string-eq [ substring string x x . ] "'" . ] . } . )
+                               { or { not
+                                        [ string-eq [ substring string x x . ] "'" . ] . }
+                                    escape . } . )
                            (
+                             if escape { set /escape False . } .
+                             if [ string-eq [ substring string x x . ] "\\" . ]
+                                {
+                                  set /escape True .
+                                } .
+                             
                              incr x .
                            ) .
                      answer [ sub x 1 . ] .
