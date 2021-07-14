@@ -1,0 +1,241 @@
+set /json
+    [ registry
+        /is-syntax
+        < (
+          set /json-syntax [ list "{" "}" "[" "]" "," ":" . ] .
+          collapse or [ do < ( string-eq t str . ) /t > json-syntax . ] .
+        ) /str >
+
+        /is-whitespace
+        < (
+          set /whitespace [ list " " "\t" "\n" . ] .
+          collapse or [ do < ( string-eq t str . ) /t > whitespace . ] .
+        ) /str >
+
+        /is-number-str
+        < (
+          set /numbers [ list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "." "-" . ] .
+          collapse or [ do < ( string-eq t str . ) /t > numbers . ] .
+        ) /str >
+
+
+        /lex-string
+        < (
+
+          set /start
+              [
+                if [ string-eq [ substring string i i . ] "'" . ]
+                   { add i 1 . }
+                   Nothing .
+              ] .
+
+          set /end
+              [
+                if [ is-nothing start . ]
+                   Nothing 
+                   {
+                     set /x start .
+                     while ( and
+                               { lt-eq x [ string-length string . ] . }
+                               { not
+                                   [ string-eq [ substring string x x . ] "'" . ] . } . )
+                           (
+                             incr x .
+                           ) .
+                     answer [ sub x 1 . ] .
+                   } .
+              ] .
+          registry /start start /end end /type "string" . 
+        ) /string /i >
+
+        /lex-number
+        < (
+          set /start
+              [
+                if [ json:/is-number-str [ substring string i i . ] . ]
+                   { answer i . }
+                   Nothing .
+              ] .
+
+          set /end
+              [
+                if [ is-nothing start . ]
+                   Nothing
+                   {
+                     set /x start .
+                     while ( and
+                               { lt-eq x [ string-length string . ] . }
+                               { json:/is-number-str [ substring string x x . ] . } . )
+                           ( incr x . ) .
+                     
+                     answer [ sub x 1 . ] .
+                   } .
+              ] .
+
+          registry /start start /end end /type "number" .
+        ) /string /i >
+
+        /lex-bool
+        < (
+          if [ and { gt-eq [ string-length string . ] [ add i 3 . ] . }
+                   { string-eq [ substring string i [ add i 3 . ] . ] "true" . } . ]
+             {
+               registry /start i /end [ add i 3 . ] /type "bool" .
+             }
+             {
+               if [ and { gt-eq [ string-length string . ] [ add i 4 . ] . }
+                   { string-eq [ substring string i [ add i 4 . ] . ] "false" . } . ]
+                  {
+                    registry /start i /end [ add i 4 . ] /type "bool" .
+                  }
+                  {
+                    registry /start Nothing /end Nothing /type "bool" .
+                  } .
+             } .
+        ) /string /i >
+
+        /lex-null
+        < (
+          if [ and { gt-eq [ string-length string . ] [ add i 3 . ] . }
+                   { string-eq [ substring string i [ add i 3 . ] . ] "null" . } . ]
+             {
+               registry /start i /end [ add i 3 . ] /type "null" .
+             }
+             {
+               registry /start Nothing /end Nothing /type "null" .
+             } .
+        ) /string /i > 
+        
+                                 
+        /lex
+        < (
+          
+          set /tokens [ registry . ] .
+
+          set /tokpos /t1 .
+          set /end 1 .
+
+          while ( lt-eq end [ string-length string . ] . )
+                (
+                  print tokpos .
+                  set /res [ registry . ] .
+                  set /t1 [ json:/lex-string string end . ] res .
+                  set /t2 [ json:/lex-number string end . ] res .
+                  set /t3 [ json:/lex-bool string end . ] res .
+                  set /t4 [ json:/lex-null string end . ] res .
+
+                  set /res0 [ find res < ( not [ is-nothing t:/start . ] . ) /t > . ] .
+                  set /char [ substring string end end . ] .
+                  please ( in res0 ( move /t4 /t1 . ) . ) ( sit . ) .
+                  please ( in res0 ( move /t3 /t1 . ) . ) ( sit . ) .
+                  please ( in res0 ( move /t2 /t1 . ) . ) ( sit . ) .
+                  set /rel-res [ last res0 /t . ] .
+                  
+                  if [ register-eq rel-res /t0 . ]
+                     {
+                       if [ json:/is-syntax char . ]
+                          {
+                            set tokpos char tokens .
+                            set /tokpos [ next tokpos . ] .
+                            incr end .
+                          }
+                          {
+                            if [ json:/is-whitespace char . ]
+                               {
+                                 incr end .
+                               } .
+                          } .
+                     }
+                     {
+                       set /res res0:rel-res .
+                       set /input [ substring string
+                                              res:/start
+                                              res:/end . ] .
+
+                       set tokpos input tokens .
+                       set /tokpos [ next tokpos . ] .
+                       if [ string-eq res:/type "string" . ]
+                          {
+                            set /end [ add res:/end 2 . ] .
+                          }
+                          {
+                            set /end [ add res:/end 1 . ] .
+                          } .
+                     } .
+                ) .
+          answer tokens .
+
+        ) /string > 
+
+        /parse-array
+        (
+          set /array [ registry . ] .
+          set /tokpos [ next tokpos . ] .
+          set /array-pos /t1 .
+          
+          while ( not [ string-eq tokens:tokpos "]" . ] . )
+                (
+                  set /res [ json:/parse /tokens tokens /tokpos tokpos . ] .
+                  set /tokpos [ next res:/tokpos . ] .
+                  if [ string-eq tokens:tokpos "," . ]
+                     {
+                       set /tokpos [ next tokpos . ] .
+                     } .
+                  
+                  set array-pos res:/data array .
+                  set /array-pos [ next array-pos . ] .
+                ) .
+
+          registry /tokpos tokpos /tokens tokens /data array .
+        )
+
+        /parse-hash
+        (
+          set /hash [ registry . ] .
+          set /tokpos [ next tokpos . ] .
+
+          while ( not [ string-eq tokens:tokpos "}" . ] . )
+                (
+                  set /key [ to-register tokens:tokpos . ] .
+                  set /tokpos [ next tokpos . ] .
+                  set /tokpos [ next tokpos . ] .
+                  set /res [ json:/parse /tokens tokens /tokpos tokpos . ] .
+                  set /tokpos [ next res:/tokpos . ] .
+                  if [ string-eq tokens:tokpos "," . ]
+                     {
+                       set /tokpos [ next tokpos . ] .
+                     } .
+                  set key res:/data hash .
+                ) .
+
+          registry /tokpos tokpos /tokens tokens /data hash .
+
+        )
+
+        /parse
+        (
+          if [ string-eq tokens:tokpos "{" . ]
+             {
+               json:/parse-hash /tokens tokens /tokpos tokpos .
+             }
+             {
+               if [ string-eq tokens:tokpos "[" . ]
+                  {
+                    json:/parse-array /tokens tokens /tokpos tokpos .
+                  }
+                  {
+
+                    registry /tokpos tokpos /tokens tokens /data tokens:tokpos .
+                  } .
+             } .
+        ) 
+
+        /read
+        < (
+          set /tokens [ json:/lex str . ] .
+          json:/parse /tokens tokens /tokpos /t1 .
+          answer ans:/data .
+        ) /str > .
+      
+    ] .
+
