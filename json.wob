@@ -1,21 +1,21 @@
 set /json
     [ registry
+        /json-syntax [ list "{" "}" "[" "]" "," ":" . ]
+        /whitespace [ list " " "\t" "\n" . ] 
+        /numbers [ list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "." "-" . ] 
         /is-syntax
         < (
-          set /json-syntax [ list "{" "}" "[" "]" "," ":" . ] .
-          collapse or [ do < ( string-eq t str . ) /t > json-syntax . ] .
+          collapse or [ do < ( string-eq t str . ) /t > json:/json-syntax . ] .
         ) /str >
 
         /is-whitespace
         < (
-          set /whitespace [ list " " "\t" "\n" . ] .
-          collapse or [ do < ( string-eq t str . ) /t > whitespace . ] .
+          collapse or [ do < ( string-eq t str . ) /t > json:/whitespace . ] .
         ) /str >
 
         /is-number-str
         < (
-          set /numbers [ list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "." "-" . ] .
-          collapse or [ do < ( string-eq t str . ) /t > numbers . ] .
+          collapse or [ do < ( string-eq t str . ) /t > json:/numbers . ] .
         ) /str >
 
 
@@ -24,7 +24,7 @@ set /json
 
           set /start
               [
-                if [ string-eq [ substring string i i . ] "'" . ]
+                if [ char-eq string i "'" . ]
                    { add i 1 . }
                    Nothing .
               ] .
@@ -36,21 +36,22 @@ set /json
                    {
                      set /x start .
                      set /escape False .
+                     set /len [ string-length string . ] .
                      while ( and
-                               { lt-eq x [ string-length string . ] . }
+                               { lt-eq x len . }
                                { or { not
-                                        [ string-eq [ substring string x x . ] "'" . ] . }
+                                        [ char-eq string x "'" . ] . }
                                     escape . } . )
                            (
                              if escape { set /escape False . } .
-                             if [ string-eq [ substring string x x . ] "\\" . ]
+                             if [ char-eq string x "\\" . ]
                                 {
                                   set /escape True .
                                 } .
                              
                              incr x .
                            ) .
-                     answer [ sub x 1 . ] .
+                     sub x 1 . 
                    } .
               ] .
           registry /start start /end end /type "string" . 
@@ -92,7 +93,7 @@ set /json
              }
              {
                if [ and { gt-eq [ string-length string . ] [ add i 4 . ] . }
-                   { string-eq [ substring string i [ add i 4 . ] . ] "false" . } . ]
+                        { string-eq [ substring string i [ add i 4 . ] . ] "false" . } . ]
                   {
                     registry /start i /end [ add i 4 . ] /type "bool" .
                   }
@@ -114,7 +115,7 @@ set /json
              } .
         ) /string /i > 
         
-                                 
+        
         /lex
         < (
           
@@ -122,24 +123,30 @@ set /json
 
           set /tokpos /t1 .
           set /end 1 .
+          set /lex-tests [
+                list
+                  json:/lex-string
+                  json:/lex-number
+                  json:/lex-bool
+                  json:/lex-null .
+              ] .
 
-          while ( lt-eq end [ string-length string . ] . )
+          set /length [ string-length string . ] .
+          while ( lt-eq end length . )
                 (
-                  set /res [ registry . ] .
-                  set /t1 [ json:/lex-string string end . ] res .
-                  set /t2 [ json:/lex-number string end . ] res .
-                  set /t3 [ json:/lex-bool string end . ] res .
-                  set /t4 [ json:/lex-null string end . ] res .
+                  set /loc /t1 .
+                  set /res [ lex-tests:/t1 string end . ] .
+                  while ( and [ is-nothing res:/start . ]
+                              { exist [ next loc . ] lex-tests . } .
+                        )
+                        (
+                          set /loc [ next loc . ] .
+                          set /res [ lex-tests:loc string end . ] .
+                        ) .
 
-                  set /res0 [ find res < ( not [ is-nothing t:/start . ] . ) /t > . ] .
-                  set /char [ substring string end end . ] .
-                  please ( in res0 ( move /t4 /t1 . ) . ) ( sit . ) .
-                  please ( in res0 ( move /t3 /t1 . ) . ) ( sit . ) .
-                  please ( in res0 ( move /t2 /t1 . ) . ) ( sit . ) .
-                  set /rel-res [ last res0 /t . ] .
-                  
-                  if [ register-eq rel-res /t0 . ]
+                  if [ is-nothing res:/start . ]
                      {
+                       set /char [ substring string end end . ] .
                        if [ json:/is-syntax char . ]
                           {
                             set tokpos char tokens .
@@ -154,7 +161,6 @@ set /json
                           } .
                      }
                      {
-                       set /res res0:rel-res .
                        set /input [ substring string
                                               res:/start
                                               res:/end . ] .
